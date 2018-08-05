@@ -63,13 +63,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	//服务器读取
+	//服务器读取配置文件
 	config.ServerCommonCfg, err = config.LoadServerCommonConf(conf)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
+	// log 选项
 	if args["-L"] != nil {
 		if args["-L"].(string) == "console" {
 			config.ServerCommonCfg.LogWay = "console"
@@ -83,6 +84,7 @@ func main() {
 		config.ServerCommonCfg.LogLevel = args["--log-level"].(string)
 	}
 
+	//本地监听地址
 	if args["--addr"] != nil {
 		addr := strings.Split(args["--addr"].(string), ":")
 		if len(addr) != 2 {
@@ -108,6 +110,7 @@ func main() {
 	log.InitLog(config.ServerCommonCfg.LogWay, config.ServerCommonCfg.LogFile,
 		config.ServerCommonCfg.LogLevel, config.ServerCommonCfg.LogMaxDays)
 
+	//新建服务
 	svr, err := server.NewService()
 	if err != nil {
 		fmt.Println(err)

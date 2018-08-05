@@ -23,6 +23,7 @@ import (
 )
 
 // Conn is the interface of connections used in frp.
+//connection接口, Conn + Log
 type Conn interface {
 	net.Conn
 	log.Logger
@@ -40,6 +41,7 @@ func WrapConn(c net.Conn) Conn {
 	}
 }
 
+//读写关文件操作
 type WrapReadWriteCloserConn struct {
 	io.ReadWriteCloser
 	log.Logger

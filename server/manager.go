@@ -19,6 +19,7 @@ import (
 	"sync"
 )
 
+//端口管理
 type PortManager struct {
 	freePort map[string]int64
 	ftpPort  map[string]int64
@@ -26,6 +27,7 @@ type PortManager struct {
 	mu sync.RWMutex
 }
 
+//新加端口管理
 func NewPortManager() *PortManager {
 	return &PortManager{
 		freePort: make(map[string]int64),
@@ -33,6 +35,7 @@ func NewPortManager() *PortManager {
 	}
 }
 
+//增加端口隐射
 func (pm *PortManager) Add(runId string, port int64) (oldPort int64) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
@@ -45,6 +48,7 @@ func (pm *PortManager) Add(runId string, port int64) (oldPort int64) {
 	return
 }
 
+//增加ftp端口隐射
 func (pm *PortManager) AddFtp(runId string, port int64) (oldPort int64) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
@@ -57,6 +61,7 @@ func (pm *PortManager) AddFtp(runId string, port int64) (oldPort int64) {
 	return
 }
 
+//获取端口
 func (pm *PortManager) GetById(runId string) (port int64, ok bool) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
@@ -64,6 +69,7 @@ func (pm *PortManager) GetById(runId string) (port int64, ok bool) {
 	return
 }
 
+//获取ftp端口
 func (pm *PortManager) GetFtpById(runId string) (port int64, ok bool) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
@@ -78,12 +84,14 @@ type ControlManager struct {
 	mu sync.RWMutex
 }
 
+//新建ctrl-Manager, 用runid来做mapping管理
 func NewControlManager() *ControlManager {
 	return &ControlManager{
 		ctlsByRunId: make(map[string]*Control),
 	}
 }
 
+//增加
 func (cm *ControlManager) Add(runId string, ctl *Control) (oldCtl *Control) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -96,6 +104,7 @@ func (cm *ControlManager) Add(runId string, ctl *Control) (oldCtl *Control) {
 	return
 }
 
+//获取
 func (cm *ControlManager) GetById(runId string) (ctl *Control, ok bool) {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
@@ -103,6 +112,7 @@ func (cm *ControlManager) GetById(runId string) (ctl *Control, ok bool) {
 	return
 }
 
+//代理
 type ProxyManager struct {
 	// proxies indexed by proxy name
 	pxys map[string]Proxy
@@ -110,12 +120,14 @@ type ProxyManager struct {
 	mu sync.RWMutex
 }
 
+//代理管理结构
 func NewProxyManager() *ProxyManager {
 	return &ProxyManager{
 		pxys: make(map[string]Proxy),
 	}
 }
 
+//新加Proxy
 func (pm *ProxyManager) Add(name string, pxy Proxy) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
@@ -127,12 +139,14 @@ func (pm *ProxyManager) Add(name string, pxy Proxy) error {
 	return nil
 }
 
+//删除proxy
 func (pm *ProxyManager) Del(name string) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	delete(pm.pxys, name)
 }
 
+//获取proxy
 func (pm *ProxyManager) GetByName(name string) (pxy Proxy, ok bool) {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()

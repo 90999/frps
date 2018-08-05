@@ -31,29 +31,34 @@ import (
 	"github.com/KunTengRom/xfrps/utils/version"
 )
 
+//控制control
 type Control struct {
 	// frps service
 	svr *Service
 
-	// login message
+	// login message 登录消息
 	loginMsg *msg.Login
 
-	// control connection
+	// control connection 连接
 	conn net.Conn
 
 	// put a message in this channel to send it over control connection to client
+	// 发送队列
 	sendCh chan (msg.Message)
 
 	// read from this channel to get the next message sent by client
+	// 接收队列
 	readCh chan (msg.Message)
 
 	// work connections
+	// work connection的队列
 	workConnCh chan net.Conn
 
 	// proxies in one client
+	// 一个client下的代理
 	proxies []Proxy
 
-	// pool count
+	// pool count, pool
 	poolCount int
 
 	// last time got the Ping message
@@ -61,10 +66,10 @@ type Control struct {
 
 	//different from frp, client must provide its runId when first login
 	// every client has unique runId, if encounter the same runId,
-	// xfrps will reject the new client
+	// xfrps will reject the new client, 唯一ID
 	runId string
 
-	// control status
+	// control status, 状态
 	status string
 
 	readerShutdown  *shutdown.Shutdown
@@ -72,22 +77,24 @@ type Control struct {
 	managerShutdown *shutdown.Shutdown
 	allShutdown     *shutdown.Shutdown
 
+	//读写锁
 	mu sync.RWMutex
 }
 
+//新建control结构, 基于service, controlConnection, login message
 func NewControl(svr *Service, ctlConn net.Conn, loginMsg *msg.Login) *Control {
 	return &Control{
 		svr:             svr,
 		conn:            ctlConn,
 		loginMsg:        loginMsg,
-		sendCh:          make(chan msg.Message, 10),
-		readCh:          make(chan msg.Message, 10),
-		workConnCh:      make(chan net.Conn, loginMsg.PoolCount+10),
-		proxies:         make([]Proxy, 0),
-		poolCount:       loginMsg.PoolCount,
-		lastPing:        time.Now(),
-		runId:           loginMsg.RunId,
-		status:          consts.Working,
+		sendCh:          make(chan msg.Message, 10),                 //发送长度10
+		readCh:          make(chan msg.Message, 10),                 //读长度10
+		workConnCh:      make(chan net.Conn, loginMsg.PoolCount+10), //workconnection 通道,
+		proxies:         make([]Proxy, 0),                           //代理数组
+		poolCount:       loginMsg.PoolCount,                         //pool数
+		lastPing:        time.Now(),                                 //
+		runId:           loginMsg.RunId,                             //拿到loginMsg中的runid
+		status:          consts.Working,                             //状态
 		readerShutdown:  shutdown.New(),
 		writerShutdown:  shutdown.New(),
 		managerShutdown: shutdown.New(),
@@ -95,6 +102,7 @@ func NewControl(svr *Service, ctlConn net.Conn, loginMsg *msg.Login) *Control {
 	}
 }
 
+// 获取空闲port
 // Get free port for client, every client has only one free port
 func (ctl *Control) GetFreePort() (port int64) {
 	var ok bool

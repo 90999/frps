@@ -25,6 +25,7 @@ import (
 	"github.com/KunTengRom/xfrps/utils/log"
 )
 
+//TCP监听结构
 type TcpListener struct {
 	net.Addr
 	listener  net.Listener
@@ -33,35 +34,44 @@ type TcpListener struct {
 	log.Logger
 }
 
+//服务监听端口
 func ListenTcp(bindAddr string, bindPort int64) (l *TcpListener, err error) {
+	//解析地址
 	tcpAddr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", bindAddr, bindPort))
 	if err != nil {
 		return l, err
 	}
+	//bind地址,监听
 	listener, err := net.ListenTCP("tcp", tcpAddr)
 	if err != nil {
 		return l, err
 	}
 
+	//服务listener
 	l = &TcpListener{
-		Addr:      listener.Addr(),
-		listener:  listener,
+		Addr:      listener.Addr(), //bind地址
+		listener:  listener,        //listener结构
 		accept:    make(chan Conn),
 		closeFlag: false,
 		Logger:    log.NewPrefixLogger(""),
 	}
 
+	// go 协程
 	go func() {
+
+		//dead loop
 		for {
+			//listen,返回connection
 			conn, err := listener.AcceptTCP()
 			if err != nil {
 				if l.closeFlag {
-					close(l.accept)
+					close(l.accept) //关闭accept chan
 					return
 				}
 				continue
 			}
 
+			//新建TCP connection
 			c := NewTcpConn(conn)
 			l.accept <- c
 		}
@@ -71,6 +81,7 @@ func ListenTcp(bindAddr string, bindPort int64) (l *TcpListener, err error) {
 
 // Wait util get one new connection or listener is closed
 // if listener is closed, err returned.
+// accept 通过chan传过来
 func (l *TcpListener) Accept() (Conn, error) {
 	conn, ok := <-l.accept
 	if !ok {
@@ -79,6 +90,7 @@ func (l *TcpListener) Accept() (Conn, error) {
 	return conn, nil
 }
 
+//关闭listener
 func (l *TcpListener) Close() error {
 	if !l.closeFlag {
 		l.closeFlag = true
@@ -93,6 +105,7 @@ type TcpConn struct {
 	log.Logger
 }
 
+//新建connection 结构, 包含Conn
 func NewTcpConn(conn *net.TCPConn) (c *TcpConn) {
 	c = &TcpConn{
 		Conn:   conn,
@@ -101,6 +114,7 @@ func NewTcpConn(conn *net.TCPConn) (c *TcpConn) {
 	return
 }
 
+//连接TCP server
 func ConnectTcpServer(addr string) (c Conn, err error) {
 	servertAddr, err := net.ResolveTCPAddr("tcp", addr)
 	if err != nil {
@@ -114,13 +128,17 @@ func ConnectTcpServer(addr string) (c Conn, err error) {
 	return
 }
 
+// 通过HTTPproxy连接TCPServer
 // ConnectTcpServerByHttpProxy try to connect remote server by http proxy.
 // If httpProxy is empty, it will connect server directly.
 func ConnectTcpServerByHttpProxy(httpProxy string, serverAddr string) (c Conn, err error) {
+
+	//如果传入的httpproxy为空,则直接连接TcpServer
 	if httpProxy == "" {
 		return ConnectTcpServer(serverAddr)
 	}
 
+	//解析http proxy url
 	var proxyUrl *url.URL
 	if proxyUrl, err = url.Parse(httpProxy); err != nil {
 		return
@@ -138,25 +156,33 @@ func ConnectTcpServerByHttpProxy(httpProxy string, serverAddr string) (c Conn, e
 		return
 	}
 
+	//连接proxy Host
 	if c, err = ConnectTcpServer(proxyUrl.Host); err != nil {
 		return
 	}
 
+	//构建HTTP CONNECT消息到代理地址
 	req, err := http.NewRequest("CONNECT", "http://"+serverAddr, nil)
 	if err != nil {
 		return
 	}
+	//设置http auth 头
 	if proxyAuth != "" {
 		req.Header.Set("Proxy-Authorization", proxyAuth)
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0")
+
+	//发送请求
 	req.Write(c)
 
+	//读取请求
 	resp, err := http.ReadResponse(bufio.NewReader(c), req)
 	if err != nil {
 		return
 	}
 	resp.Body.Close()
+
+	//检查连接是否成功
 	if resp.StatusCode != 200 {
 		err = fmt.Errorf("ConnectTcpServer using proxy error, StatusCode [%d]", resp.StatusCode)
 		return

@@ -57,30 +57,33 @@ type Service struct {
 	portManager *PortManager
 }
 
+//新建serivce向外提供服务
 func NewService() (svr *Service, err error) {
 	svr = &Service{
-		ctlManager:  NewControlManager(),
-		pxyManager:  NewProxyManager(),
-		portManager: NewPortManager(),
+		ctlManager:  NewControlManager(), //新建ctl-Manager
+		pxyManager:  NewProxyManager(),   //新建Proxy-Manager
+		portManager: NewPortManager(),    //新建Port-Manager
 	}
 
 	// Init assets.
+	//资源文件加载
 	err = assets.Load(config.ServerCommonCfg.AssetsDir)
 	if err != nil {
 		err = fmt.Errorf("Load assets error: %v", err)
 		return
 	}
 
-	// Listen for accepting connections from client.
+	// 服务监听绑定端口
 	svr.listener, err = frpNet.ListenTcp(config.ServerCommonCfg.BindAddr, config.ServerCommonCfg.BindPort)
 	if err != nil {
 		err = fmt.Errorf("Create server listener error, %v", err)
 		return
 	}
 
-	// Create http vhost muxer.
+	//http vhost port,  HTTP
 	if config.ServerCommonCfg.VhostHttpPort != 0 {
 		var l frpNet.Listener
+		//提供vhost http服务
 		l, err = frpNet.ListenTcp(config.ServerCommonCfg.BindAddr, config.ServerCommonCfg.VhostHttpPort)
 		if err != nil {
 			err = fmt.Errorf("Create vhost http listener error, %v", err)
@@ -93,7 +96,7 @@ func NewService() (svr *Service, err error) {
 		}
 	}
 
-	// Create https vhost muxer.
+	// Create https vhost muxer. HTTPS
 	if config.ServerCommonCfg.VhostHttpsPort != 0 {
 		var l frpNet.Listener
 		l, err = frpNet.ListenTcp(config.ServerCommonCfg.BindAddr, config.ServerCommonCfg.VhostHttpsPort)
@@ -108,11 +111,11 @@ func NewService() (svr *Service, err error) {
 		}
 	}
 
-	// Create dashboard web server.
+	// Create dashboard web server. 管理后台, 默认为bindPort + 1
 	if config.ServerCommonCfg.DashboardPort == 0 {
 		config.ServerCommonCfg.DashboardPort = config.ServerCommonCfg.BindPort + 1
 	}
-
+	//启动Dashboard服务
 	err = RunDashboardServer(config.ServerCommonCfg.BindAddr, config.ServerCommonCfg.DashboardPort)
 	if err != nil {
 		err = fmt.Errorf("Create dashboard web server error, %v", err)

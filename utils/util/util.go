@@ -126,12 +126,15 @@ var (
 	tcpPortRand = mathRand.New(mathRand.NewSource(time.Now().UnixNano()))
 )
 
+//检查端口是否可用
 // IsTCPPortAvailable returns a flag indicating whether or not a TCP port is
 // available.
 func IsTCPPortAvailable(port int) bool {
 	if IsPortValid(port) == false {
 		return false
 	}
+
+	//用tcp去尝试去监听一把
 	conn, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
 		return false
@@ -140,6 +143,7 @@ func IsTCPPortAvailable(port int) bool {
 	return true
 }
 
+//端口是否在合法范围
 func IsPortValid(port int) bool {
 	if port < minTCPPort || port > maxTCPPort {
 		return false
