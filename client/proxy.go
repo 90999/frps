@@ -33,6 +33,8 @@ import (
 	frpNet "github.com/KunTengRom/xfrps/utils/net"
 )
 
+// 代理interface, 代理接口，实现这个接口的类型有TCPproxy UDPproxy FTPproxy
+// HTTPproxy， HTTPSproxy
 // Proxy defines how to work for different proxy type.
 type Proxy interface {
 	Run() error
@@ -43,33 +45,34 @@ type Proxy interface {
 	log.Logger
 }
 
+//新建Proxy
 func NewProxy(ctl *Control, pxyConf config.ProxyConf) (pxy Proxy) {
 	baseProxy := BaseProxy{
 		ctl:    ctl,
 		Logger: log.NewPrefixLogger(pxyConf.GetName()),
 	}
 	switch cfg := pxyConf.(type) {
-	case *config.TcpProxyConf:
+	case *config.TcpProxyConf: // TCP proxy
 		pxy = &TcpProxy{
 			BaseProxy: baseProxy,
 			cfg:       cfg,
 		}
-	case *config.UdpProxyConf:
+	case *config.UdpProxyConf: //UDP proxy
 		pxy = &UdpProxy{
 			BaseProxy: baseProxy,
 			cfg:       cfg,
 		}
-	case *config.FtpProxyConf:
+	case *config.FtpProxyConf: //FTP proxy
 		pxy = &FtpProxy{
 			BaseProxy: baseProxy,
 			cfg:       cfg,
 		}
-	case *config.HttpProxyConf:
+	case *config.HttpProxyConf: //HTTP proxy
 		pxy = &HttpProxy{
 			BaseProxy: baseProxy,
 			cfg:       cfg,
 		}
-	case *config.HttpsProxyConf:
+	case *config.HttpsProxyConf: //HTTPS proxy
 		pxy = &HttpsProxy{
 			BaseProxy: baseProxy,
 			cfg:       cfg,
@@ -85,7 +88,7 @@ type BaseProxy struct {
 	log.Logger
 }
 
-// TCP
+// TCPproxy
 type TcpProxy struct {
 	BaseProxy
 
@@ -93,6 +96,7 @@ type TcpProxy struct {
 	proxyPlugin plugin.Plugin
 }
 
+//插件?
 func (pxy *TcpProxy) Run() (err error) {
 	if pxy.cfg.Plugin != "" {
 		pxy.proxyPlugin, err = plugin.Create(pxy.cfg.Plugin, pxy.cfg.PluginParams)
@@ -113,7 +117,7 @@ func (pxy *TcpProxy) InWorkConn(conn frpNet.Conn) {
 	HandleTcpWorkConnection(&pxy.cfg.LocalSvrConf, pxy.proxyPlugin, &pxy.cfg.BaseProxyConf, conn)
 }
 
-// ftp
+// ftp proxy
 type FtpProxy struct {
 	BaseProxy
 
@@ -224,7 +228,7 @@ func JoinFtpControl(fc io.ReadWriteCloser, fs io.ReadWriteCloser, bp *BaseProxy,
 	return
 }
 
-// HTTP
+// HTTP proxy
 type HttpProxy struct {
 	BaseProxy
 
@@ -280,7 +284,7 @@ func (pxy *HttpsProxy) InWorkConn(conn frpNet.Conn) {
 	HandleTcpWorkConnection(&pxy.cfg.LocalSvrConf, pxy.proxyPlugin, &pxy.cfg.BaseProxyConf, conn)
 }
 
-// UDP
+// UDP proxy
 type UdpProxy struct {
 	BaseProxy
 
@@ -382,9 +386,12 @@ func (pxy *UdpProxy) InWorkConn(conn frpNet.Conn) {
 	go workConnSenderFn(pxy.workConn, pxy.sendCh)
 	go workConnReaderFn(pxy.workConn, pxy.readCh)
 	go heartbeatFn(pxy.workConn, pxy.sendCh)
+
+	//UDP forwarder
 	udp.Forwarder(pxy.localAddr, pxy.readCh, pxy.sendCh)
 }
 
+//判断是否ipv4
 func IsIpv4(host string) bool {
 	parts := strings.Split(host, ".")
 
@@ -460,6 +467,7 @@ func GetFtpPasvPort(msg string) (port int) {
 	return
 }
 
+// TCP workconn 处理
 // Common handler for tcp work connections.
 func HandleTcpWorkConnection(localInfo *config.LocalSvrConf, proxyPlugin plugin.Plugin,
 	baseInfo *config.BaseProxyConf, workConn frpNet.Conn) {
@@ -487,6 +495,7 @@ func HandleTcpWorkConnection(localInfo *config.LocalSvrConf, proxyPlugin plugin.
 		workConn.Debug("handle by plugin finished")
 		return
 	} else {
+		//新建本地TCP连接服务
 		localConn, err := frpNet.ConnectTcpServer(fmt.Sprintf("%s:%d", localInfo.LocalIp, localInfo.LocalPort))
 		if err != nil {
 			workConn.Error("connect to local service [%s:%d] error: %v", localInfo.LocalIp, localInfo.LocalPort, err)
@@ -495,6 +504,8 @@ func HandleTcpWorkConnection(localInfo *config.LocalSvrConf, proxyPlugin plugin.
 
 		workConn.Debug("join connections, localConn(l[%s] r[%s]) workConn(l[%s] r[%s])", localConn.LocalAddr().String(),
 			localConn.RemoteAddr().String(), workConn.LocalAddr().String(), workConn.RemoteAddr().String())
+
+		//将本地connection连接到remote的connection上
 		tcp.Join(localConn, remote)
 		workConn.Debug("join connections closed")
 	}

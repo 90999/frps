@@ -115,7 +115,9 @@ func main() {
 	log.InitLog(config.ClientCommonCfg.LogWay, config.ClientCommonCfg.LogFile,
 		config.ClientCommonCfg.LogLevel, config.ClientCommonCfg.LogMaxDays)
 
+	//服务启用
 	svr := client.NewService(pxyCfgs)
+	//服务开始run
 	err = svr.Run()
 	if err != nil {
 		fmt.Println(err)

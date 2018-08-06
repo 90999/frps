@@ -31,7 +31,7 @@ import (
 	"github.com/KunTengRom/xfrps/utils/version"
 )
 
-//控制control
+//Server的控制control
 type Control struct {
 	// frps service
 	svr *Service
@@ -146,6 +146,7 @@ func (ctl *Control) Start() {
 	go ctl.stoper()
 }
 
+//ctrol上注册work connection
 func (ctl *Control) RegisterWorkConn(conn net.Conn) {
 	defer func() {
 		if err := recover(); err != nil {
@@ -154,6 +155,7 @@ func (ctl *Control) RegisterWorkConn(conn net.Conn) {
 	}()
 
 	select {
+	// connection 传入 workConnection channel
 	case ctl.workConnCh <- conn:
 		ctl.conn.Debug("new work connection registered")
 	default:
@@ -176,6 +178,8 @@ func (ctl *Control) GetWorkConn() (workConn net.Conn, err error) {
 	var ok bool
 	// get a work connection from the pool
 	select {
+
+	//从workConnection channel 拿出一个workConnection
 	case workConn, ok = <-ctl.workConnCh:
 		if !ok {
 			err = errors.ErrCtlClosed
@@ -193,6 +197,7 @@ func (ctl *Control) GetWorkConn() (workConn net.Conn, err error) {
 		}
 
 		select {
+		//
 		case workConn, ok = <-ctl.workConnCh:
 			if !ok {
 				err = errors.ErrCtlClosed
@@ -200,6 +205,7 @@ func (ctl *Control) GetWorkConn() (workConn net.Conn, err error) {
 				return
 			}
 
+		//超时
 		case <-time.After(time.Duration(config.ServerCommonCfg.UserConnTimeout) * time.Second):
 			err = fmt.Errorf("timeout trying to get work connection")
 			ctl.conn.Warn("%v", err)
@@ -220,6 +226,7 @@ func (ctl *Control) Replaced(newCtl *Control) {
 	ctl.allShutdown.Start()
 }
 
+// ctrl对应的writer
 func (ctl *Control) writer() {
 	defer func() {
 		if err := recover(); err != nil {
@@ -244,6 +251,7 @@ func (ctl *Control) writer() {
 	}
 
 	for {
+		// 从send channel拿到msg，发送出去
 		if m, ok := <-ctl.sendCh; !ok {
 			ctl.conn.Info("control writer is closing")
 			return
@@ -256,6 +264,7 @@ func (ctl *Control) writer() {
 	}
 }
 
+//读协程
 func (ctl *Control) reader() {
 	defer func() {
 		if err := recover(); err != nil {
@@ -263,7 +272,9 @@ func (ctl *Control) reader() {
 		}
 	}()
 
+	//ctrl的清理工作
 	defer ctl.allShutdown.Start()
+	//ctrl的清理完成
 	defer ctl.readerShutdown.Done()
 
 	var xfrpReader io.Reader
@@ -273,7 +284,11 @@ func (ctl *Control) reader() {
 		xfrpReader = ctl.conn
 	}
 	for {
+
+		// 读到消息
 		if m, err := msg.ReadMsg(xfrpReader); err != nil {
+
+			//EOF 表示control关闭
 			if err == io.EOF {
 				ctl.conn.Debug("control connection closed")
 				return
@@ -282,6 +297,8 @@ func (ctl *Control) reader() {
 				return
 			}
 		} else {
+
+			// 将msg放到read channel
 			ctl.readCh <- m
 		}
 	}
@@ -322,6 +339,7 @@ func (ctl *Control) stoper() {
 	StatsCloseClient(ctl.runId)
 }
 
+//manager
 func (ctl *Control) manager() {
 	defer func() {
 		if err := recover(); err != nil {
@@ -332,23 +350,30 @@ func (ctl *Control) manager() {
 	defer ctl.allShutdown.Start()
 	defer ctl.managerShutdown.Done()
 
+	//心跳
 	heartbeat := time.NewTicker(time.Second)
 	defer heartbeat.Stop()
 
 	for {
 		select {
+		//心跳时间超时
 		case <-heartbeat.C:
 			if time.Since(ctl.lastPing) > time.Duration(config.ServerCommonCfg.HeartBeatTimeout)*time.Second {
 				ctl.conn.Warn("heartbeat timeout")
 				ctl.allShutdown.Start()
 			}
+
+		//从read channel把消息读进来处理
 		case rawMsg, ok := <-ctl.readCh:
 			if !ok {
 				return
 			}
 
 			switch m := rawMsg.(type) {
+
+			// 客户端发过来的NewProxy消息
 			case *msg.NewProxy:
+				// ctrol上注册一个新的proxy
 				// register proxy in this control
 				resp, err := ctl.RegisterProxy(m)
 				if err != nil {
@@ -356,24 +381,37 @@ func (ctl *Control) manager() {
 					ctl.conn.Warn("new proxy [%s] error: %v", m.ProxyName, err)
 				} else {
 					ctl.conn.Info("new proxy [%s] success", m.ProxyName)
+
+					//启用新的proxy
 					StatsNewProxy(m.ProxyName, m.ProxyType, ctl.runId)
 				}
+
+				//发送NewProxyResp给客户端
 				ctl.sendCh <- resp
+
+			//收到客户端的PING消息
 			case *msg.Ping:
 				ctl.lastPing = time.Now()
+
+				//返回PONG消息
 				ctl.sendCh <- &msg.Pong{}
 			}
 		}
 	}
 }
 
+//control上注册Proxy
 func (ctl *Control) RegisterProxy(pxyMsg *msg.NewProxy) (resp *msg.NewProxyResp, err error) {
+
+	//NewProxyResp
 	resp = &msg.NewProxyResp{
 		ProxyName: pxyMsg.ProxyName,
 	}
 
 	var pxyConf config.ProxyConf
 	// Load configures from NewProxy message and check.
+
+	//从msg来生成proxyCfg
 	pxyConf, err = config.NewProxyConf(pxyMsg)
 	if err != nil {
 		return
@@ -381,11 +419,13 @@ func (ctl *Control) RegisterProxy(pxyMsg *msg.NewProxy) (resp *msg.NewProxyResp,
 
 	// NewProxy will return a interface Proxy.
 	// In fact it create different proxies by different proxy type, we just call run() here.
+	// 生成一个NewProxy
 	pxy, err := NewProxy(ctl, pxyConf)
 	if err != nil {
 		return
 	}
 
+	//运行proxy
 	err = pxy.Run()
 	if err != nil {
 		return
@@ -398,15 +438,19 @@ func (ctl *Control) RegisterProxy(pxyMsg *msg.NewProxy) (resp *msg.NewProxyResp,
 
 	// if tcp or ftp and remote_port is 0, get its remote_port and set resp
 	// udp not support
+	// 拿到远端端口
 	if (pxyMsg.ProxyType == consts.TcpProxy || pxyMsg.ProxyType == consts.FtpProxy) &&
 		pxyMsg.RemotePort == 0 {
 		resp.RemotePort = pxy.GetRemotePort()
 	}
 
+	// 看看是否已经注册
 	err = ctl.svr.RegisterProxy(pxyMsg.ProxyName, pxy)
 	if err != nil {
 		return
 	}
+
+	// ctl中加入proxies
 	ctl.proxies = append(ctl.proxies, pxy)
 	err = nil
 	return

@@ -23,6 +23,7 @@ type Service struct {
 	closedCh chan int
 }
 
+//新建service结构，新建ctrol结构
 func NewService(pxyCfgs map[string]config.ProxyConf) (svr *Service) {
 	svr = &Service{
 		closedCh: make(chan int),
@@ -32,6 +33,7 @@ func NewService(pxyCfgs map[string]config.ProxyConf) (svr *Service) {
 	return
 }
 
+// service触发control启动运行
 func (svr *Service) Run() error {
 	err := svr.ctl.Run()
 	if err != nil {

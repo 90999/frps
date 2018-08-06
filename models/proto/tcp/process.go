@@ -19,6 +19,7 @@ import (
 	"sync"
 )
 
+// 将C1和C2的读写关io进行pipe操作
 // Join two io.ReadWriteCloser and do some operations.
 func Join(c1 io.ReadWriteCloser, c2 io.ReadWriteCloser) (inCount int64, outCount int64) {
 	var wait sync.WaitGroup

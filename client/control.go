@@ -37,6 +37,7 @@ const (
 	connReadTimeout time.Duration = 10 * time.Second
 )
 
+//控制面板,客户端
 type Control struct {
 	// frpc service
 	svr *Service
@@ -57,18 +58,22 @@ type Control struct {
 	session *smux.Session
 
 	// put a message in this channel to send it over control connection to server
+	// 发送队列
 	sendCh chan (msg.Message)
 
 	// read from this channel to get the next message sent by server
+	// 读队列
 	readCh chan (msg.Message)
 
-	// run id got from server
+	// run i got from server
+	// 识别id
 	runId string
 
 	// connection or other error happens , control will try to reconnect to server
 	closed int32
 
 	// goroutines can block by reading from this channel, it will be closed only in reader() when control connection is closed
+	// 关闭时间 队列
 	closedCh chan int
 
 	// last time got the Pong message
@@ -79,6 +84,7 @@ type Control struct {
 	log.Logger
 }
 
+//读取硬件接口的mac地址，转换为runid
 func GetRunIdByInterfaceName() (runId string) {
 	interfaces, err := golangnet.Interfaces()
 	if err != nil {
@@ -100,6 +106,7 @@ func GetRunIdByInterfaceName() (runId string) {
 	return
 }
 
+//新建control结构
 func NewControl(svr *Service, pxyCfgs map[string]config.ProxyConf) *Control {
 
 	runId := GetRunIdByInterfaceName()
@@ -135,6 +142,7 @@ func NewControl(svr *Service, pxyCfgs map[string]config.ProxyConf) *Control {
 // controler() will keep running
 func (ctl *Control) Run() error {
 	for {
+		//登录
 		err := ctl.login()
 		if err != nil {
 			// if login_fail_exit is true, just exit this program
@@ -150,11 +158,19 @@ func (ctl *Control) Run() error {
 		}
 	}
 
+	// control
 	go ctl.controler()
+
+	//manager()
 	go ctl.manager()
+
+	// writer
 	go ctl.writer()
+
+	//reader
 	go ctl.reader()
 
+	//发送NewProxy消息到所有的proxy
 	// send NewProxy message for all configured proxies
 	for _, cfg := range ctl.pxyCfgs {
 		var newProxyMsg msg.NewProxy
@@ -165,6 +181,7 @@ func (ctl *Control) Run() error {
 	return nil
 }
 
+//新work connect
 func (ctl *Control) NewWorkConn() {
 	var (
 		workConn net.Conn
@@ -179,6 +196,7 @@ func (ctl *Control) NewWorkConn() {
 		workConn = net.WrapConn(stream)
 
 	} else {
+		//连接TCP server
 		workConn, err = net.ConnectTcpServerByHttpProxy(config.ClientCommonCfg.HttpProxy,
 			fmt.Sprintf("%s:%d", config.ClientCommonCfg.ServerAddr, config.ClientCommonCfg.ServerPort))
 		if err != nil {
@@ -187,9 +205,12 @@ func (ctl *Control) NewWorkConn() {
 		}
 	}
 
+	//消息体
 	m := &msg.NewWorkConn{
 		RunId: ctl.runId,
 	}
+
+	//pack消息
 	if err = msg.WriteMsg(workConn, m); err != nil {
 		ctl.Warn("work connection write to server error: %v", err)
 		workConn.Close()
@@ -197,6 +218,7 @@ func (ctl *Control) NewWorkConn() {
 	}
 
 	var startMsg msg.StartWorkConn
+	//
 	if err = msg.ReadMsgInto(workConn, &startMsg); err != nil {
 		ctl.Error("work connection closed, %v", err)
 		workConn.Close()
@@ -208,18 +230,22 @@ func (ctl *Control) NewWorkConn() {
 	if pxy, ok := ctl.proxies[startMsg.ProxyName]; ok {
 		workConn.Debug("start a new work connection: %s, localAddr: %s remoteAddr: %s",
 			startMsg.ProxyName, workConn.LocalAddr().String(), workConn.RemoteAddr().String())
+
+		//启用对应proxy的work conn流程
 		go pxy.InWorkConn(workConn)
 	} else {
 		workConn.Close()
 	}
 }
 
+//初始化
 func (ctl *Control) init() {
 	ctl.sendCh = make(chan msg.Message, 10)
 	ctl.readCh = make(chan msg.Message, 10)
 	ctl.closedCh = make(chan int)
 }
 
+//登录
 // login send a login message to server and wait for a loginResp message.
 func (ctl *Control) login() (err error) {
 	if ctl.conn != nil {
@@ -229,6 +255,7 @@ func (ctl *Control) login() (err error) {
 		ctl.session.Close()
 	}
 
+	//连接服务器
 	conn, err := net.ConnectTcpServerByHttpProxy(config.ClientCommonCfg.HttpProxy,
 		fmt.Sprintf("%s:%d", config.ClientCommonCfg.ServerAddr, config.ClientCommonCfg.ServerPort))
 	if err != nil {
@@ -241,6 +268,7 @@ func (ctl *Control) login() (err error) {
 		}
 	}()
 
+	//多路复用
 	if config.ClientCommonCfg.TcpMux {
 		session, errRet := smux.Client(conn, nil)
 		if errRet != nil {
@@ -260,17 +288,24 @@ func (ctl *Control) login() (err error) {
 	ctl.loginMsg.Timestamp = now
 	ctl.loginMsg.RunId = ctl.runId
 
+	//构造login消息，并发送
 	if err = msg.WriteMsg(conn, ctl.loginMsg); err != nil {
 		return err
 	}
 
 	var loginRespMsg msg.LoginResp
+	//设置超时
 	conn.SetReadDeadline(time.Now().Add(connReadTimeout))
+
+	//读取消息
 	if err = msg.ReadMsgInto(conn, &loginRespMsg); err != nil {
 		return err
 	}
+
+	//？
 	conn.SetReadDeadline(time.Time{})
 
+	//登录失败
 	if loginRespMsg.Error != "" {
 		err = fmt.Errorf("%s", loginRespMsg.Error)
 		ctl.Error("%s", loginRespMsg.Error)
@@ -291,6 +326,7 @@ func (ctl *Control) login() (err error) {
 	return nil
 }
 
+//reader工作线程
 func (ctl *Control) reader() {
 	defer func() {
 		if err := recover(); err != nil {
@@ -305,8 +341,12 @@ func (ctl *Control) reader() {
 	} else {
 		xfrpReader = ctl.conn
 	}
+
+	//循环读取消息
 	for {
 		if m, err := msg.ReadMsg(xfrpReader); err != nil {
+
+			//结束
 			if err == io.EOF {
 				ctl.Debug("read from control connection EOF")
 				return
@@ -315,11 +355,13 @@ func (ctl *Control) reader() {
 				return
 			}
 		} else {
+			//将msg直接放入read channel
 			ctl.readCh <- m
 		}
 	}
 }
 
+//writer发送消息工作线程
 func (ctl *Control) writer() {
 	var xfrpWriter io.Writer
 	if config.ClientCommonCfg.UseEncryption {
@@ -333,11 +375,19 @@ func (ctl *Control) writer() {
 	} else {
 		xfrpWriter = ctl.conn
 	}
+
+	//发送deadloop
 	for {
+
+		//从发送send channel 接收数据
 		if m, ok := <-ctl.sendCh; !ok {
+
+			//channel 已经关闭
 			ctl.Info("control writer is closing")
 			return
 		} else {
+
+			//将msg发送出
 			if err := msg.WriteMsg(xfrpWriter, m); err != nil {
 				ctl.Warn("write message to control connection error: %v", err)
 				return
@@ -346,6 +396,7 @@ func (ctl *Control) writer() {
 	}
 }
 
+//管理线程
 func (ctl *Control) manager() {
 	defer func() {
 		if err := recover(); err != nil {
@@ -353,8 +404,11 @@ func (ctl *Control) manager() {
 		}
 	}()
 
+	// heart beat
 	hbSend := time.NewTicker(time.Duration(config.ClientCommonCfg.HeartBeatInterval) * time.Second)
 	defer hbSend.Stop()
+
+	//heart beat check
 	hbCheck := time.NewTicker(time.Second)
 	defer hbCheck.Stop()
 
@@ -363,22 +417,27 @@ func (ctl *Control) manager() {
 		case <-hbSend.C:
 			// send heartbeat to server
 			ctl.Debug("send heartbeat to server")
-			ctl.sendCh <- &msg.Ping{}
+			ctl.sendCh <- &msg.Ping{} //Ping消息到send channel
 		case <-hbCheck.C:
 			if time.Since(ctl.lastPong) > time.Duration(config.ClientCommonCfg.HeartBeatTimeout)*time.Second {
 				ctl.Warn("heartbeat timeout")
 				// let reader() stop
-				ctl.conn.Close()
+				ctl.conn.Close() //Ping-Pong 超时，关闭connection
 				return
 			}
-		case rawMsg, ok := <-ctl.readCh:
+		case rawMsg, ok := <-ctl.readCh: //从读channel中读取msg
 			if !ok {
 				return
 			}
 
+			//根据消息不同，进行不同的动作
 			switch m := rawMsg.(type) {
+
+			// ReqWorkConn， 请求新的workconn
 			case *msg.ReqWorkConn:
 				go ctl.NewWorkConn()
+
+			//NewProxyResp， 新Proxy的响应
 			case *msg.NewProxyResp:
 				// Server will return NewProxyResp message to each NewProxy message.
 				// Start a new proxy handler if no error got
@@ -386,17 +445,22 @@ func (ctl *Control) manager() {
 					ctl.Warn("[%s] start error: %s", m.ProxyName, m.Error)
 					continue
 				}
+
+				//拿到proxy配置
 				cfg, ok := ctl.pxyCfgs[m.ProxyName]
 				if !ok {
 					// it will never go to this branch now
 					ctl.Warn("[%s] no proxy conf found", m.ProxyName)
 					continue
 				}
+
+				//写入proxy远端的端口
 				// if RemotePort is not 0, set cfg's remote port
 				if m.RemotePort != 0 {
 					cfg.FillRemotePort(m.RemotePort)
 				}
 
+				//
 				cfgType, ok := cfg.(*config.TcpProxyConf)
 				if ok {
 					if cfgType.FtpCfgProxyName != "" {
@@ -412,15 +476,22 @@ func (ctl *Control) manager() {
 
 				oldPxy, ok := ctl.proxies[m.ProxyName]
 				if ok {
+					//关闭旧的proxy先
 					oldPxy.Close()
 				}
+
+				//新proxy结构
 				pxy := NewProxy(ctl, cfg)
+
+				//运行proxy
 				if err := pxy.Run(); err != nil {
 					ctl.Warn("[%s] proxy start running error: %v", m.ProxyName, err)
 					continue
 				}
 				ctl.proxies[m.ProxyName] = pxy
 				ctl.Info("[%s] start proxy success", m.ProxyName)
+
+				//收到PONG消息，更新ctl心跳时间戳
 			case *msg.Pong:
 				ctl.lastPong = time.Now()
 				ctl.Debug("receive heartbeat from server")
@@ -429,6 +500,7 @@ func (ctl *Control) manager() {
 	}
 }
 
+// 控制线程，一直观察closed channel
 // control keep watching closedCh, start a new connection if previous control connection is closed
 func (ctl *Control) controler() {
 	var err error
@@ -440,27 +512,31 @@ func (ctl *Control) controler() {
 	for {
 		select {
 		case <-checkProxyTicker.C:
+			// 每30s检查proxy注册
 			// Every 30 seconds, check which proxy registered failed and reregister it to server.
 			for _, cfg := range ctl.pxyCfgs {
 				if _, exist := ctl.proxies[cfg.GetName()]; !exist {
 					ctl.Info("try to reregister proxy [%s]", cfg.GetName())
 					var newProxyMsg msg.NewProxy
 					cfg.UnMarshalToMsg(&newProxyMsg)
-					ctl.sendCh <- &newProxyMsg
+					ctl.sendCh <- &newProxyMsg //消息通过ctrol发出
 				}
 			}
 		case _, ok := <-ctl.closedCh:
+			//如果有关闭事件
 			// we won't get any variable from this channel
 			if !ok {
 				// close related channels
 				close(ctl.readCh)
 				close(ctl.sendCh)
 
+				//关闭此ctrol下的所有代理
 				for _, pxy := range ctl.proxies {
 					pxy.Close()
 				}
 				time.Sleep(time.Second)
 
+				// 重连
 				// loop util reconnect to server success
 				for {
 					ctl.Info("try to reconnect to server...")
@@ -479,6 +555,7 @@ func (ctl *Control) controler() {
 					break
 				}
 
+				//ctrol 初始化
 				// init related channels and variables
 				ctl.init()
 
@@ -487,6 +564,7 @@ func (ctl *Control) controler() {
 				go ctl.writer()
 				go ctl.reader()
 
+				// 发送NewProxy消息注册到服务器
 				// send NewProxy message for all configured proxies
 				for _, cfg := range ctl.pxyCfgs {
 					var newProxyMsg msg.NewProxy

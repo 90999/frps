@@ -36,23 +36,30 @@ const (
 
 var ServerService *Service
 
+// 服务结构
 // Server service.
 type Service struct {
+	// Accept listener
 	// Accept connections from client.
 	listener frpNet.Listener
 
+	// HTTP vhost
 	// For http proxies, route requests to different clients by hostname and other infomation.
 	VhostHttpMuxer *vhost.HttpMuxer
 
+	// HTTPS
 	// For https proxies, route requests to different clients by hostname and other infomation.
 	VhostHttpsMuxer *vhost.HttpsMuxer
 
+	//control管理
 	// Manage all controllers.
 	ctlManager *ControlManager
 
+	//proxy管理
 	// Manage all proxies.
 	pxyManager *ProxyManager
 
+	//port管理
 	// Manage all free port for each client
 	portManager *PortManager
 }
@@ -99,6 +106,8 @@ func NewService() (svr *Service, err error) {
 	// Create https vhost muxer. HTTPS
 	if config.ServerCommonCfg.VhostHttpsPort != 0 {
 		var l frpNet.Listener
+
+		//建立服务器监听
 		l, err = frpNet.ListenTcp(config.ServerCommonCfg.BindAddr, config.ServerCommonCfg.VhostHttpsPort)
 		if err != nil {
 			err = fmt.Errorf("Create vhost https listener error, %v", err)
@@ -125,20 +134,25 @@ func NewService() (svr *Service, err error) {
 	return
 }
 
+//服务运行
 func (svr *Service) Run() {
 	// Listen for incoming connections from client.
 	for {
+		//监听句柄上来了新的连接
 		c, err := svr.listener.Accept()
 		if err != nil {
 			log.Warn("Listener for incoming connections from client closed")
 			return
 		}
 
+		// 新起一个协程来处理这个连接
 		// Start a new goroutine for dealing connections.
 		go func(frpConn frpNet.Conn) {
 			dealFn := func(conn frpNet.Conn) {
 				var rawMsg msg.Message
 				conn.SetReadDeadline(time.Now().Add(connReadTimeout))
+
+				//读消息
 				if rawMsg, err = msg.ReadMsg(conn); err != nil {
 					log.Warn("Failed to read message: %v", err)
 					conn.Close()
@@ -146,8 +160,10 @@ func (svr *Service) Run() {
 				}
 				conn.SetReadDeadline(time.Time{})
 
+				//判断消息类型
 				switch m := rawMsg.(type) {
 				case *msg.Login:
+					// 用户注册消息
 					err = svr.RegisterControl(conn, m)
 					// If login failed, send error message there.
 					// Otherwise send success message in control's work goroutine.
@@ -193,6 +209,7 @@ func (svr *Service) Run() {
 	}
 }
 
+//客户端注册control
 func (svr *Service) RegisterControl(ctlConn frpNet.Conn, loginMsg *msg.Login) (err error) {
 	ctlConn.Info("client login info: ip [%s] version [%s] hostname [%s] os [%s] arch [%s] runId [%s]",
 		ctlConn.RemoteAddr().String(), loginMsg.Version, loginMsg.Hostname, loginMsg.Os, loginMsg.Arch, loginMsg.RunId)
@@ -209,41 +226,55 @@ func (svr *Service) RegisterControl(ctlConn frpNet.Conn, loginMsg *msg.Login) (e
 		err = fmt.Errorf("authorization timeout")
 		return
 	}
+
+	//获取认证key
 	if util.GetAuthKey(config.ServerCommonCfg.PrivilegeToken, loginMsg.Timestamp) != loginMsg.PrivilegeKey {
 		err = fmt.Errorf("authorization failed")
 		return
 	}
 
-	// client must provide its RunId
+	// runid不能为空
 	if loginMsg.RunId == "" {
 		err = fmt.Errorf("need RunId")
 		return
 	}
 
+	// 新建一个control，记录connection+loginMsg
 	ctl := NewControl(svr, ctlConn, loginMsg)
+	//加入ctl管理
 	if oldCtl := svr.ctlManager.Add(loginMsg.RunId, ctl); oldCtl != nil {
 		oldCtl.allShutdown.WaitDown()
 	}
 
+	//log
 	ctlConn.AddLogPrefix(loginMsg.RunId)
+
+	//启用新建的ctrl
 	ctl.Start()
 
-	// for statistics
+	// 更新数据统计
 	StatsNewClient(loginMsg.RunId)
 	return
 }
 
+//
 // RegisterWorkConn register a new work connection to control and proxies need it.
 func (svr *Service) RegisterWorkConn(workConn frpNet.Conn, newMsg *msg.NewWorkConn) {
+
+	// 拿到对应的ctrl
 	ctl, exist := svr.ctlManager.GetById(newMsg.RunId)
 	if !exist {
 		workConn.Warn("No client control found for run id [%s]", newMsg.RunId)
 		return
 	}
+
+	//这个ctrl上注册新的workConnection
 	ctl.RegisterWorkConn(workConn)
+
 	return
 }
 
+//放到proxyManager中管理
 func (svr *Service) RegisterProxy(name string, pxy Proxy) error {
 	err := svr.pxyManager.Add(name, pxy)
 	return err

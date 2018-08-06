@@ -24,6 +24,7 @@ var (
 	MaxMsgLength int32 = 10240
 )
 
+// 读取消息
 func readMsg(c io.Reader) (typeByte byte, buffer []byte, err error) {
 	buffer = make([]byte, 1)
 	_, err = c.Read(buffer)
@@ -74,12 +75,15 @@ func ReadMsgInto(c io.Reader, msg Message) (err error) {
 	return UnPackInto(buffer, msg)
 }
 
+//发送消息
 func WriteMsg(c io.Writer, msg interface{}) (err error) {
+	//pack消息体
 	buffer, err := Pack(msg)
 	if err != nil {
 		return
 	}
 
+	//发送
 	if _, err = c.Write(buffer); err != nil {
 		return
 	}

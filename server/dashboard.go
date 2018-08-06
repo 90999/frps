@@ -60,13 +60,14 @@ func RunDashboardServer(addr string, port int64) (err error) {
 	router.GET("/api/port/tcp/getport/:runid", httprouterNoAuth(apiGetPort))       // according runid, getting tcp port
 	router.GET("/api/port/tcp/getftpport/:runid", httprouterNoAuth(apiGetFtpPort)) // according runid, getting its ftp control port
 
-	// view
+	//静态视图
 	router.Handler("GET", "/favicon.ico", http.FileServer(assets.FileSystem))
 	router.Handler("GET", "/static/*filepath", MakeGzipHandler(basicAuthWraper(http.StripPrefix("/static/", http.FileServer(assets.FileSystem)))))
 	router.HandlerFunc("GET", "/", basicAuth(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/static/", http.StatusMovedPermanently)
 	}))
 
+	// http绑定地址
 	address := fmt.Sprintf("%s:%d", addr, port)
 	server := &http.Server{
 		Addr:         address,
@@ -82,10 +83,12 @@ func RunDashboardServer(addr string, port int64) (err error) {
 		return err
 	}
 
+	//启动http服务
 	go server.Serve(ln)
 	return
 }
 
+//中间件
 func use(h http.HandlerFunc, middleware ...func(http.HandlerFunc) http.HandlerFunc) http.HandlerFunc {
 	for _, m := range middleware {
 		h = m(h)

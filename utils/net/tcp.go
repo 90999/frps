@@ -71,8 +71,10 @@ func ListenTcp(bindAddr string, bindPort int64) (l *TcpListener, err error) {
 				continue
 			}
 
-			//新建TCP connection
+			//新来一个连接，新建TCP connection
 			c := NewTcpConn(conn)
+
+			//新连接导入accept-channel
 			l.accept <- c
 		}
 	}()
@@ -81,7 +83,7 @@ func ListenTcp(bindAddr string, bindPort int64) (l *TcpListener, err error) {
 
 // Wait util get one new connection or listener is closed
 // if listener is closed, err returned.
-// accept 通过chan传过来
+// accept 通过chan传过来， Accept仅供测试
 func (l *TcpListener) Accept() (Conn, error) {
 	conn, ok := <-l.accept
 	if !ok {
@@ -90,7 +92,7 @@ func (l *TcpListener) Accept() (Conn, error) {
 	return conn, nil
 }
 
-//关闭listener
+//关闭listener，仅供测试
 func (l *TcpListener) Close() error {
 	if !l.closeFlag {
 		l.closeFlag = true
@@ -114,7 +116,7 @@ func NewTcpConn(conn *net.TCPConn) (c *TcpConn) {
 	return
 }
 
-//连接TCP server
+//连接TCP server， 被HTTP代理调用
 func ConnectTcpServer(addr string) (c Conn, err error) {
 	servertAddr, err := net.ResolveTCPAddr("tcp", addr)
 	if err != nil {

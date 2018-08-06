@@ -197,6 +197,8 @@ func proxyOperation(w http.ResponseWriter, r *http.Request, params httprouter.Pa
 	pageIndex, err := strconv.Atoi(pageNo)
 	if err != nil {
 		log.Info("Http request: [/api/proxy/%s]", proxyType)
+
+		//读取proxy状态
 		getProxyStatsByType(proxyType)
 		res.TotalPage = int64(len(globalProxyStats)/pageSize + 1)
 	} else {

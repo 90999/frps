@@ -66,9 +66,12 @@ func (pxy *BaseProxy) Close() {
 	}
 }
 
+// 从pool中拿到WorkConn
 func (pxy *BaseProxy) GetWorkConnFromPool() (workConn frpNet.Conn, err error) {
+	//获取ctrl
 	ctl := pxy.GetControl()
 	// try all connections from the pool
+	// 遍历所有的ctrl pool
 	for i := 0; i < ctl.poolCount+1; i++ {
 		if workConn, err = ctl.GetWorkConn(); err != nil {
 			pxy.Warn("failed to get work connection: %v", err)
@@ -77,6 +80,7 @@ func (pxy *BaseProxy) GetWorkConnFromPool() (workConn frpNet.Conn, err error) {
 		pxy.Info("get a new work connection: [%s]", workConn.RemoteAddr().String())
 		workConn.AddLogPrefix(pxy.GetName())
 
+		// 写消息给workConn， msg：StartWorkConn
 		err := msg.WriteMsg(workConn, &msg.StartWorkConn{
 			ProxyName: pxy.GetName(),
 		})
@@ -95,14 +99,17 @@ func (pxy *BaseProxy) GetWorkConnFromPool() (workConn frpNet.Conn, err error) {
 	return
 }
 
+// 为每个linstener新起一个goroutine
 // startListenHandler start a goroutine handler for each listener.
 // p: p will just be passed to handler(Proxy, frpNet.Conn).
 // handler: each proxy type can set different handler function to deal with connections accepted from listeners.
 func (pxy *BaseProxy) startListenHandler(p Proxy, handler func(Proxy, frpNet.Conn)) {
+
+	// loop listeners
 	for _, listener := range pxy.listeners {
 		go func(l frpNet.Listener) {
 			for {
-				// block
+				// block, 接受连接服务
 				// if listener is closed, err returned
 				c, err := l.Accept()
 				if err != nil {
@@ -110,13 +117,18 @@ func (pxy *BaseProxy) startListenHandler(p Proxy, handler func(Proxy, frpNet.Con
 					return
 				}
 				pxy.Debug("get a user connection [%s]", c.RemoteAddr().String())
+
+				// 处理新进来的连接
 				go handler(p, c)
 			}
 		}(listener)
 	}
 }
 
+//新建proxy
 func NewProxy(ctl *Control, pxyConf config.ProxyConf) (pxy Proxy, err error) {
+
+	//
 	basePxy := BaseProxy{
 		name:      pxyConf.GetName(),
 		ctl:       ctl,
@@ -161,20 +173,28 @@ type TcpProxy struct {
 	cfg *config.TcpProxyConf
 }
 
+//TCP proxy RUN
 func (pxy *TcpProxy) Run() error {
 	if pxy.cfg.RemotePort == 0 {
 		// get port for client
+		//为客户端拿到一个free的client
 		pxy.cfg.RemotePort = pxy.ctl.GetFreePort()
 	}
 
+	// 本地监听这个远端地址
 	listener, err := frpNet.ListenTcp(config.ServerCommonCfg.BindAddr, pxy.cfg.RemotePort)
 	if err != nil {
 		return err
 	}
+
+	//
 	listener.AddLogPrefix(pxy.name)
+
+	//proxy的listener数组
 	pxy.listeners = append(pxy.listeners, listener)
 	pxy.Info("tcp proxy [%s] listen port [%d]", pxy.name, pxy.cfg.RemotePort)
 
+	//设置proxy的listener处理函数
 	pxy.startListenHandler(pxy, HandleUserTcpConnection)
 	return nil
 }
@@ -518,11 +538,13 @@ func (pxy *UdpProxy) Close() {
 	}
 }
 
+// 处理用户的TCP连接
 // HandleUserTcpConnection is used for incoming tcp user connections.
 // It can be used for tcp, http, https type.
 func HandleUserTcpConnection(pxy Proxy, userConn frpNet.Conn) {
 	defer userConn.Close()
 
+	// 从pool中新拉一个workconn
 	// try all connections from the pool
 	workConn, err := pxy.GetWorkConnFromPool()
 	if err != nil {
@@ -530,6 +552,7 @@ func HandleUserTcpConnection(pxy Proxy, userConn frpNet.Conn) {
 	}
 	defer workConn.Close()
 
+	//设置io读写关
 	var local io.ReadWriteCloser = workConn
 	cfg := pxy.GetConf().GetBaseInfo()
 	if cfg.UseEncryption {
@@ -546,9 +569,14 @@ func HandleUserTcpConnection(pxy Proxy, userConn frpNet.Conn) {
 		pxy.GetName(), workConn.LocalAddr().String(),
 		workConn.RemoteAddr().String(), userConn.LocalAddr().String(), userConn.RemoteAddr().String())
 
+	//更新统计打开的连接数
 	StatsOpenConnection(pxy.GetName())
+	//将local io和userConn关联pipe起来
 	inCount, outCount := tcp.Join(local, userConn)
+	//更新统计关闭的连接数
 	StatsCloseConnection(pxy.GetName())
+
+	//更新traffic统计
 	StatsAddTrafficIn(pxy.GetName(), inCount)
 	StatsAddTrafficOut(pxy.GetName(), outCount)
 	pxy.Debug("join connections closed")

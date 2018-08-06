@@ -29,6 +29,7 @@ import (
 
 var proxyConfTypeMap map[string]reflect.Type
 
+//
 func init() {
 	proxyConfTypeMap = make(map[string]reflect.Type)
 	proxyConfTypeMap[consts.TcpProxy] = reflect.TypeOf(TcpProxyConf{})

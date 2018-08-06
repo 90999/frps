@@ -110,7 +110,7 @@ func main() {
 	log.InitLog(config.ServerCommonCfg.LogWay, config.ServerCommonCfg.LogFile,
 		config.ServerCommonCfg.LogLevel, config.ServerCommonCfg.LogMaxDays)
 
-	//新建服务
+	//服务器的Service启用
 	svr, err := server.NewService()
 	if err != nil {
 		fmt.Println(err)
@@ -121,5 +121,7 @@ func main() {
 		log.Info("PrivilegeMode is enabled, you should pay more attention to security issues")
 	}
 	server.ServerService = svr
+
+	//服务启用
 	svr.Run()
 }
